@@ -1,0 +1,44 @@
+//Include Libraries
+#include <SPI.h>
+#include <nRF24L01.h>
+#include <RF24.h>
+#include <printf.h>
+
+//create an RF24 object
+RF24 radio(7, 8);  // CE, CSN
+
+//address through which two modules communicate.
+const uint64_t Pipe = 0xE6E6E6E6E6E6;
+const int buzzer = 9;
+const int motorPin = 3;
+void setup() {
+  while (!Serial)
+    ;
+  Serial.begin(9600);
+  printf_begin();
+  radio.begin();
+  //set the address
+  radio.openReadingPipe(1, Pipe);
+  //Set module as receiver
+  radio.startListening();
+  radio.setPALevel(RF24_PA_MAX);
+  radio.setChannel(76);  // set RF channel to 76
+  radio.powerUp();
+  radio.printDetails();
+  pinMode(buzzer, OUTPUT);
+  pinMode(motorPin, OUTPUT);
+}
+
+void loop() {
+  //Read the data if available in buffer
+  if (radio.available()) {
+    char text[32] = { 0 };
+    radio.read(&text, sizeof(text));
+    tone(buzzer, 1000); // Send 1KHz sound signal...
+    digitalWrite(motorPin, HIGH); 
+    delay(1000);         // ...for 1 sec
+    noTone(buzzer);   // Stop sound...
+    digitalWrite(motorPin, LOW);   
+    delay(1000);
+  }
+}

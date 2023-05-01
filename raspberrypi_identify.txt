@@ -1,0 +1,165 @@
+import cv2
+import time
+import json
+import time
+import serialArduino
+cv2.namedWindow("test")
+refPt = []
+
+
+classNames = []
+classFile = "/home/fegor/Desktop/Object_Detection_Files/coco.names"
+with open(classFile,"rt") as f:
+    classNames = f.read().rstrip("\n").split("\n")
+
+configPath = "/home/fegor/Desktop/Object_Detection_Files/ssd_mobilenet_v3_large_coco_2020_01_14.pbtxt"
+weightsPath = "/home/fegor/Desktop/Object_Detection_Files/frozen_inference_graph.pb"
+
+net = cv2.dnn_DetectionModel(weightsPath,configPath)
+net.setInputSize(320, 320)
+net.setInputScale(1.0/ 127.5)
+net.setInputMean((127.5, 127.5, 127.5))
+net.setInputSwapRB(True)
+
+def click_and_draw(event, x, y, flags, param):
+    # grab references to the global variables
+    global refPt
+    # if the left mouse button was clicked, record the starting
+    # (x, y) coordinates
+    if event == cv2.EVENT_LBUTTONDOWN:
+        refPt = [(x, y)]
+    # check to see if the left mouse button was released
+    elif event == cv2.EVENT_LBUTTONUP:
+        # record the ending (x, y) coordinates and indicate that
+        refPt.append((x, y))
+        # draw a rectangle around the region of interest
+        cv2.rectangle(image, refPt[0], refPt[1], (0, 255, 0), 2)
+        cv2.imshow("image", image)
+
+# construct the argument parser and parse the arguments
+
+def getObjects(dangerArea,img, thres, nms, draw=True, objects=[]):
+    
+    classIds, confs, bbox = net.detect(img,confThreshold=thres,nmsThreshold=nms)
+    #print(classIds,bbox)
+    if len(objects) == 0: objects = classNames
+    objectInfo =[]
+    #show danger area
+    cv2.rectangle(img, dangerArea[0], dangerArea[1], (0, 0, 255), 5)
+    cv2.putText(img,'danger area',(dangerArea[0][0],dangerArea[0][1]),
+    cv2.FONT_HERSHEY_COMPLEX,1,(0,0,255),2)
+    if len(classIds) != 0:
+        for classId, confidence,box in zip(classIds.flatten(),confs.flatten(),bbox):
+            className = classNames[classId - 1]
+            if className in objects:
+                objectInfo.append([box,className])
+                if (draw):
+                    cx,cy = centerCordCalc(objectInfo[0][0])
+                    # Draw a circle of red color of thickness -1 px
+                    cv2.circle(img, (cx,cy), 10, (0,255,0), -1)
+                    cv2.rectangle(img,box,color=(0,255,0),thickness=2)
+                    cv2.putText(img,classNames[classId-1].upper(),(box[0]+10,box[1]+30),
+                    cv2.FONT_HERSHEY_COMPLEX,1,(0,255,0),2)
+                    cv2.putText(img,str(round(confidence*100,2)),(box[0]+200,box[1]+30),
+                    cv2.FONT_HERSHEY_COMPLEX,1,(0,255,0),2)
+
+    return img,objectInfo
+
+#function to calculate center of bounding box - it has a bug getting the correct cx value for now
+def centerCordCalc (coordinates):
+    x_center = int((coordinates[0]**2 + (coordinates[2]**2))**0.5)
+    y_center = int((coordinates[1] + coordinates[3])/2) 
+    return x_center,y_center
+
+if __name__=="__main__":
+    counter = 0
+    cam = cv2.VideoCapture(0)
+    cv2.namedWindow("test")
+
+    while True:
+        ret, frame = cam.read()
+        if not ret:
+            print("failed to grab frame")
+            break
+        cv2.imshow("test", frame)
+
+        k = cv2.waitKey(1)
+        if k%256 == 27:
+            # ESC pressed
+            print("Escape hit, closing...")
+            break
+        elif k%256 == 32:
+            # SPACE pressed
+            img_name = "setup_image.png"
+            cv2.imwrite(img_name, frame)
+            print("{} written!".format(img_name))
+            time.sleep(5)
+            cv2.destroyWindow("test")
+            print('loading')
+            break
+
+    # load the image, clone it, and setup the mouse callback function
+    image = cv2.imread("setup_image.png")
+    cv2.namedWindow("image")
+    cv2.setMouseCallback("image", click_and_draw)
+    # keep looping until the 'c' key is pressed
+    while True:
+        # display the image and wait for a keypress
+        cv2.imshow("image", image)
+        key = cv2.waitKey(1) & 0xFF
+        # if the 'c' key is pressed, break from the loop
+        if key == ord("c"):
+            #print(refPt)
+            cv2.destroyWindow("image")
+            break
+    # if there are two reference points, then crop the region of interest
+    # from teh image and display it
+
+
+    dangerArea = refPt
+
+    cam.release()
+
+    cap = cv2.VideoCapture(0)
+    cap.set(3, 640)
+    cap.set(4,480)
+   
+
+    while True:
+        success, img = cap.read()
+        result, objectInfo = getObjects(dangerArea,img,0.5,0.2, objects=['person'])
+        #print(objectInfo)
+    
+        try:
+            if len(objectInfo) != 0:
+                #print(objectInfo[0][0])
+                cx,cy = centerCordCalc(objectInfo[0][0])
+                #print('cx:',cx,'DA_x1:',dangerArea[0][0],'DA_x2:',dangerArea[1][0])
+                #print('cy:',cy,'DA_y1:',dangerArea[0][1],'DA_y2:',dangerArea[1][1])
+
+                if cx>dangerArea[0][0] and cx<dangerArea[1][0] and cy>dangerArea[0][1] and cy<dangerArea[1][1]:
+                    print('you are in the danger area')
+                    counter = counter + 1
+                    print(counter)
+                    if counter > 20:
+                        for i in range(2):
+                            serialArduino.runSerial()
+                        counter = 0
+
+                #this is where code goes to trigger RF signal
+                else:
+                    counter = 0
+            else:
+                counter = 0
+        except Exception as e :
+            print(e)
+        
+        cv2.imshow("test",img)
+        cv2.waitKey(1)
+
+    
+
+  
+
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
