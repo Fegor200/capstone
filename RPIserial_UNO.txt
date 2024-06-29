@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 # lsusb to check device name
 #dmesg | grep "tty" to find port name
+# designed by Oghenefegor Enwa
 import time
 import serial,time
 
